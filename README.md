@@ -35,7 +35,7 @@ install.packages("shiny")
 2. Placez votre fichier de données CSV `listings.csv` dans le même dossier que le script.
 3. Exécutez le script dans R ou RStudio avec la commande suivante :
 ```R
-shiny::runApp("nom_du_fichier.R")
+shiny::runApp("Predict_Final.R")
 ```
 L'application s'ouvrira dans votre navigateur.
 

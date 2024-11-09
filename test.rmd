@@ -5,20 +5,22 @@ data <- read.csv(choose.files())
 head(data$price, 150)
 
 
-# sélectionnez les colonnes pertinentes pour l'analyse
+# les colonnes pertinentes pour l'analyse
 data <- data[, c("id", "name", "description", "property_type", "room_type", "accommodates", "bathrooms", "bedrooms", "price", "availability_365")]
 
 ```	
 
 ```{r}
-# Enlever le symbole $ et convertir en numérique
+# le symbole $ et convertir en numérique
 head(data$price)
 data$price <- as.numeric(gsub("[$,]", "", data$price))
 head(data$price)
 
 library(dplyr)
+
 #les pirx manquant "" remplacer en NA
 data$price[data$price == ""] <- NA
+
 # Calculer la moyenne des prix en incluant `bedrooms`, `beds`, `property_type`, `room_type` et `neighbourhood`
 mean_prices <- data %>%
   group_by(bedrooms, beds, property_type, room_type, neighbourhood) %>%
@@ -50,7 +52,7 @@ head(data$price, 150)
 # Supprimer les décimales en arrondissant vers le bas
 data$price <- floor(data$price)
 
-# Vérifier les résultats
+#les résultats
 head(data$price, 150)
 
 ```
@@ -114,11 +116,10 @@ data$log_price <- log1p(data$price)  # log1p pour éviter log(0)
 threshold <- quantile(data$price, 0.99)
 print(paste("Seuil du 99e percentile :", threshold))
 
-# Vérifier la valeur maximale dans les données filtrées
+# je tcheck la valeur maximale dans les données filtrées
 print(paste("Valeur maximale après filtrage :", max(data_filtered$price, na.rm = TRUE)))
 
-
-# Comparer les distributions avant et après transformation
+# je compare les distributions avant et après transformation
 par(mfrow = c(1, 2))  # Afficher les deux graphiques côte à côte
 
 # Distribution des prix avant transformation
@@ -257,13 +258,13 @@ print(correlations["price", ])
 data[numeric_vars] <- scale(data[numeric_vars])
 #================================================================================================
 
-# Remplacer les valeurs manquantes dans `price` par la médiane
+# les valeurs manquantes dans `price` par la médiane
 data$price[is.na(data$price)] <- median(data$price, na.rm = TRUE)
 
-# Remplacer les valeurs manquantes dans `bedrooms` par la médiane
+# les valeurs manquantes dans `bedrooms` par la médiane
 data$bedrooms[is.na(data$bedrooms)] <- median(data$bedrooms, na.rm = TRUE)
 
-# Vérifier à nouveau les valeurs manquantes
+# Vérifier les valeurs manquantes
 sapply(data[important_columns], function(x) sum(is.na(x)))
 
 
@@ -320,7 +321,7 @@ if (!requireNamespace("caret", quietly = TRUE)) {
 }
 library(caret)
 
-# Sélectionner les colonnes nécessaires et enlever les NA pour assurer la consistance des données
+# les colonnes nécessaires et enlever les NA pour assurer la consistance des données
 selected_vars <- c("price", "accommodates", "bathrooms", "bedrooms", "log_price")
 train_data <- na.omit(train_data[selected_vars])
 test_data <- na.omit(test_data[selected_vars])
@@ -329,7 +330,6 @@ test_data <- na.omit(test_data[selected_vars])
 set.seed(42)
 train_sample <- train_data[sample(1:nrow(train_data), size = 0.1 * nrow(train_data)), ]
 
-# Entraîner un modèle de régression linéaire avec lm
 model <- lm(price ~ accommodates + bathrooms + bedrooms + log_price, data = train_sample)
 
 # Prédictions sur l'ensemble de test
