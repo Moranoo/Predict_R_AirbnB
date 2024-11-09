@@ -1,0 +1,527 @@
+```{r}
+# Importation des données
+data <- read.csv(choose.files())
+#50 a 150 premier ligne de la colonne price
+head(data$price, 150)
+
+
+# sélectionnez les colonnes pertinentes pour l'analyse
+data <- data[, c("id", "name", "description", "property_type", "room_type", "accommodates", "bathrooms", "bedrooms", "price", "availability_365")]
+
+```	
+
+```{r}
+# Enlever le symbole $ et convertir en numérique
+head(data$price)
+data$price <- as.numeric(gsub("[$,]", "", data$price))
+head(data$price)
+
+library(dplyr)
+#les pirx manquant "" remplacer en NA
+data$price[data$price == ""] <- NA
+# Calculer la moyenne des prix en incluant `bedrooms`, `beds`, `property_type`, `room_type` et `neighbourhood`
+mean_prices <- data %>%
+  group_by(bedrooms, beds, property_type, room_type, neighbourhood) %>%
+  summarize(mean_price = mean(price, na.rm = TRUE), .groups = 'drop')
+
+# Joindre la moyenne des prix calculée avec les données d'origine
+data <- data %>%
+  left_join(mean_prices, by = c("bedrooms", "beds", "property_type", "room_type", "neighbourhood"))
+
+# Remplacer les NA dans `price` avec la moyenne calculée pour la catégorie correspondante
+data$price[is.na(data$price)] <- data$mean_price[is.na(data$price)]
+
+# Supprimer la colonne `mean_price` si elle n'est plus nécessaire
+data <- data %>% select(-mean_price)
+
+#Afficher le resultat
+head(data$price, 150)
+
+# Remplacer les NaN en utilisant une moyenne par combinaison partielle
+data$price[is.nan(data$price)] <- data %>%
+  mutate(partial_mean = ave(price, property_type, room_type, FUN = function(x) mean(x, na.rm = TRUE))) %>%
+  pull(partial_mean)
+
+# Si des `NaN` persistent, les remplacer par la moyenne générale
+data$price[is.nan(data$price)] <- mean(data$price, na.rm = TRUE)
+
+head(data$price, 150)
+
+# Supprimer les décimales en arrondissant vers le bas
+data$price <- floor(data$price)
+
+# Vérifier les résultats
+head(data$price, 150)
+
+```
+
+```{r}	
+str(data)
+data <- data %>% select(-listing_url, -scrape_id, -last_scraped, -source, -name, -description, 
+                        -neighborhood_overview, -picture_url, -host_url, -host_name, 
+                        -host_thumbnail_url, -host_picture_url, -license, -mean_price.x, -mean_price.y)
+str(data)
+
+
+# Convertir les colonnes de texte pertinentes en facteurs
+data$instant_bookable <- as.factor(data$instant_bookable)
+data$host_is_superhost <- as.factor(data$host_is_superhost)
+data$host_has_profile_pic <- as.factor(data$host_has_profile_pic)
+data$host_identity_verified <- as.factor(data$host_identity_verified)
+
+str(data)
+summary(data)
+
+
+# Remplir les NA dans les colonnes `review_scores_*` et `bathrooms` avec la médiane
+cols_to_fill <- c("bathrooms", "review_scores_rating", "review_scores_accuracy", 
+                  "review_scores_cleanliness", "review_scores_checkin", 
+                  "review_scores_communication", "review_scores_location", 
+                  "review_scores_value", "reviews_per_month")
+
+# Remplir les NA avec la médiane pour chaque colonne
+for (col in cols_to_fill) {
+  data[[col]][is.na(data[[col]])] <- median(data[[col]], na.rm = TRUE)
+}
+summary(data[cols_to_fill])
+
+# Vérifier le nombre de NA dans chaque colonne sélectionnée
+sapply(data[cols_to_fill], function(x) sum(is.na(x)))
+```	
+
+```{r}	
+hist(data$price, main = "Distribution des Prix Airbnb", xlab = "Prix", breaks = 50)
+
+boxplot(price ~ bedrooms, data = data, main = "Prix par Nombre de Chambres", 
+        xlab = "Nombre de Chambres", ylab = "Prix")
+
+plot(data$review_scores_location, data$price, main = "Score de Localisation vs Prix", 
+     xlab = "Score de Localisation", ylab = "Prix", pch = 19, col = "blue")
+
+plot(data$availability_365, data$price, main = "Disponibilité sur 365 jours vs Prix",	
+        xlab = "Disponibilité sur 365 jours", ylab = "Prix", pch = 19, col = "green")
+```
+
+```{r}
+# Filtrer les outliers
+threshold <- quantile(data$price, 0.99)
+data_filtered <- data[data$price <= threshold, ]
+
+# appliquer une transformation logarithmique
+data$log_price <- log1p(data$price)  # log1p pour éviter log(0)
+
+# Calculer et afficher la valeur du 99e percentile
+threshold <- quantile(data$price, 0.99)
+print(paste("Seuil du 99e percentile :", threshold))
+
+# Vérifier la valeur maximale dans les données filtrées
+print(paste("Valeur maximale après filtrage :", max(data_filtered$price, na.rm = TRUE)))
+
+
+# Comparer les distributions avant et après transformation
+par(mfrow = c(1, 2))  # Afficher les deux graphiques côte à côte
+
+# Distribution des prix avant transformation
+hist(data$price, main = "Distribution des Prix Avant Transformation", xlab = "Prix", breaks = 50)
+
+# Distribution des prix après transformation logarithmique
+hist(data$log_price, main = "Distribution des Prix Après Transformation Logarithmique", xlab = "Log(Prix + 1)", breaks = 50)
+
+par(mfrow = c(1, 1))  # Réinitialiser l'affichage des graphiques
+```	
+
+```{r}
+# Vérifier les doublons
+duplicate_rows <- sum(duplicated(data))
+print(paste("Nombre de lignes dupliquées :", duplicate_rows))
+
+str(data)
+
+
+#pour l'analyse temporelles je l'ai met au format date
+data$host_since <- as.Date(data$host_since)
+data$first_review <- as.Date(data$first_review)
+data$last_review <- as.Date(data$last_review)
+data$calendar_last_scraped <- as.Date(data$calendar_last_scraped)
+
+#affiche le resultat des dates
+head(data[c("host_since", "first_review", "last_review", "calendar_last_scraped")])
+#voir combien y a de Na
+sapply(data[c("host_since", "first_review", "last_review", "calendar_last_scraped")], function(x) sum(is.na(x)))
+ 
+
+# Conversion des colonnes de pourcentage en numérique
+data$host_response_rate <- as.numeric(gsub("%", "", data$host_response_rate)) / 100
+data$host_acceptance_rate <- as.numeric(gsub("%", "", data$host_acceptance_rate)) / 100
+
+# Conversion des colonnes de catégories en facteurs
+data$host_location <- as.factor(data$host_location)
+data$host_response_time <- as.factor(data$host_response_time)
+data$neighbourhood <- as.factor(data$neighbourhood)
+data$property_type <- as.factor(data$property_type)
+data$room_type <- as.factor(data$room_type)
+data$has_availability <- as.factor(data$has_availability)
+
+# Conversion des colonnes booléennes en TRUE/FALSE
+data$instant_bookable <- data$instant_bookable == "t"
+data$host_is_superhost <- data$host_is_superhost == "t"
+data$host_has_profile_pic <- data$host_has_profile_pic == "t"
+data$host_identity_verified <- data$host_identity_verified == "t"
+
+# Vérification des modifications
+str(data)
+#================================================================================================
+
+summary(data$host_response_rate)
+summary(data$host_acceptance_rate)
+summary(data$host_location)
+summary(data$host_response_time)
+summary(data$instant_bookable)
+
+#================================================================================================
+sum(is.na(data$host_response_rate))
+sum(is.na(data$host_acceptance_rate))
+
+#================================================================================================
+
+data$missing_host_response_rate <- is.na(data$host_response_rate)
+data$missing_host_acceptance_rate <- is.na(data$host_acceptance_rate)
+
+#verifier pour is.na a bien ete ajouter
+summary(data$missing_host_response_rate)
+summary(data$missing_host_acceptance_rate)
+
+#================================================================================================
+# Vérifier les premières lignes des nouvelles colonnes
+head(data[c("host_response_rate", "missing_host_response_rate", "host_acceptance_rate", "missing_host_acceptance_rate")])
+
+#================================================================================================
+# Remplacer les NA par -1 pour indiquer l'absence de réponse
+data$host_response_rate[is.na(data$host_response_rate)] <- -1
+data$host_acceptance_rate[is.na(data$host_acceptance_rate)] <- -1
+
+# Vérifier les premières lignes pour confirmer la conversion
+head(data[c("host_response_rate", "host_acceptance_rate")])
+
+#================================================================================================
+str(data)
+#aperçu des quartier dans la colonne neighbourhood
+unique(data$neighbourhood)
+# et dans la colonne qui donne les quartiers les plus populaires c'est la colonne neighbourhood_cleansed
+unique(data$neighbourhood_cleansed)
+#le type de donne dans la colonnes neighbourhood_group_cleansed
+str(data$neighbourhood_group_cleansed)
+
+
+# Vérifier et remplir `neighbourhood_group_cleansed` avec `neighbourhood_cleansed` s'il s'agit de la même information
+data$neighbourhood_group_cleansed <- as.factor(data$neighbourhood_cleansed)
+
+# Vérification des valeurs uniques pour confirmer que la colonne est bien peuplée
+unique(data$neighbourhood_group_cleansed)
+
+```	
+
+```{r}
+if (!requireNamespace("fastDummies", quietly = TRUE)) {
+    install.packages("fastDummies")
+}
+library(fastDummies)
+
+# Créer des colonnes dummies pour les colonnes sélectionnées
+data <- dummy_cols(data, select_columns = c("neighbourhood_group_cleansed", "room_type", "property_type"), 
+                   remove_first_dummy = TRUE, # Optionnel, évite la multicolinéarité
+                   remove_selected_columns = TRUE) # Supprime les colonnes d'origine
+
+# Vérifier les nouvelles colonnes créées
+str(data)
+
+#================================================================================================
+# Vérifier les valeurs manquantes dans les colonnes importantes
+important_columns <- c("price", "accommodates", "bathrooms", "bedrooms", "availability_365")
+missing_values <- sapply(data[important_columns], function(x) sum(is.na(x)))
+print("Nombre de valeurs manquantes par colonne importante :")
+print(missing_values)
+
+#================================================================================================
+# Visualisation de la distribution des prix
+hist(data$price, main = "Distribution des Prix", xlab = "Prix", breaks = 50)
+
+# Corrélation entre `price` et autres variables numériques
+numeric_vars <- sapply(data, is.numeric)
+correlations <- cor(data[, numeric_vars], use = "complete.obs")
+print("Matrice de corrélation :")
+print(correlations["price", ])
+
+#================================================================================================
+# Normalisation des variables numériques
+data[numeric_vars] <- scale(data[numeric_vars])
+#================================================================================================
+
+# Remplacer les valeurs manquantes dans `price` par la médiane
+data$price[is.na(data$price)] <- median(data$price, na.rm = TRUE)
+
+# Remplacer les valeurs manquantes dans `bedrooms` par la médiane
+data$bedrooms[is.na(data$bedrooms)] <- median(data$bedrooms, na.rm = TRUE)
+
+# Vérifier à nouveau les valeurs manquantes
+sapply(data[important_columns], function(x) sum(is.na(x)))
+
+
+#================================================================================================
+# Distribution des prix
+hist(data$price, main = "Distribution des Prix après imputation", xlab = "Prix", breaks = 50)
+
+# Corrélation entre `price` et les autres variables numériques
+correlations <- cor(data[, numeric_vars], use = "complete.obs")
+print(correlations["price", ])
+
+#================================================================================================
+
+# Visualisation de la distribution des prix
+hist(data$price, main = "Distribution des Prix après imputation", xlab = "Prix", breaks = 50)
+
+# Corrélation entre `price` et autres variables numériques
+correlations <- cor(data[, numeric_vars], use = "complete.obs")
+print("Matrice de corrélation :")
+print(correlations["price", ])
+
+#================================================================================================
+# Normalisation des variables continues
+data[numeric_vars] <- scale(data[numeric_vars])
+
+# Division des données (80% pour l'entraînement, 20% pour le test)
+set.seed(123)  # Assurer la reproductibilité
+train_index <- sample(seq_len(nrow(data)), size = 0.8 * nrow(data))
+train_data <- data[train_index, ]
+test_data <- data[-train_index, ]
+
+#=================================================================================================
+#=================================================================================================
+# Vérifier les valeurs manquantes dans l'ensemble d'entraînement
+missing_values_train <- sapply(train_data, function(x) sum(is.na(x)))
+print("Nombre de valeurs manquantes par colonne dans train_data :")
+print(missing_values_train)
+
+train_data$log_price[is.na(train_data$log_price)] <- median(train_data$log_price, na.rm = TRUE)
+
+missing_values_train <- sapply(train_data, function(x) sum(is.na(x)))
+print("Nombre de valeurs manquantes par colonne dans train_data après imputation :")
+print(missing_values_train)
+
+
+#-----------------------------------------------------------------------------------------------------------------
+
+#=================================================================================================
+# ici
+
+# Charger le package requis
+if (!requireNamespace("caret", quietly = TRUE)) {
+    install.packages("caret")
+}
+library(caret)
+
+# Sélectionner les colonnes nécessaires et enlever les NA pour assurer la consistance des données
+selected_vars <- c("price", "accommodates", "bathrooms", "bedrooms", "log_price")
+train_data <- na.omit(train_data[selected_vars])
+test_data <- na.omit(test_data[selected_vars])
+
+# Échantillonner les données pour une gestion mémoire plus efficace
+set.seed(42)
+train_sample <- train_data[sample(1:nrow(train_data), size = 0.1 * nrow(train_data)), ]
+
+# Entraîner un modèle de régression linéaire avec lm
+model <- lm(price ~ accommodates + bathrooms + bedrooms + log_price, data = train_sample)
+
+# Prédictions sur l'ensemble de test
+predictions <- predict(model, newdata = test_data)
+
+# Calcul du MSE
+mse <- mean((test_data$price - predictions)^2)
+print(paste("MSE sur l'ensemble de test :", mse))
+
+#=================================================================================================
+#=================================================================================================
+#=================================================================================================
+# Installer et charger le package randomForest si ce n'est pas déjà fait
+if (!requireNamespace("randomForest", quietly = TRUE)) {
+    install.packages("randomForest")
+}
+library(randomForest)
+
+# Étape 1 : Sélectionner les variables nécessaires (les plus corrélées avec `price`)
+selected_vars <- c("price", "accommodates", "bathrooms", "bedrooms", "log_price")
+train_data <- na.omit(train_data[selected_vars])  # Enlever les valeurs manquantes dans l'ensemble d'entraînement
+test_data <- na.omit(test_data[selected_vars])    # Enlever les valeurs manquantes dans l'ensemble de test
+
+# Étape 2 : Échantillonner les données si nécessaire (facultatif)
+# Ici, nous travaillons avec un sous-ensemble de l'échantillon pour économiser de la mémoire
+set.seed(42)
+train_sample <- train_data[sample(1:nrow(train_data), size = 0.1 * nrow(train_data)), ]
+
+# Étape 3 : Entraîner le modèle de Random Forest
+set.seed(42)  # Pour assurer la reproductibilité
+model_rf <- randomForest(price ~ accommodates + bathrooms + bedrooms + log_price, 
+                         data = train_sample, 
+                         ntree = 100,          # Nombre d'arbres dans la forêt (peut être augmenté)
+                         importance = TRUE)    # Importance des variables pour évaluer leur contribution
+
+# Étape 4 : Prédire sur l'ensemble de test
+predictions_rf <- predict(model_rf, newdata = test_data)
+
+# Étape 5 : Calculer le MSE pour évaluer les performances
+mse_rf <- mean((test_data$price - predictions_rf)^2)
+print(paste("MSE sur l'ensemble de test pour le modèle Random Forest :", mse_rf))
+
+# Optionnel : Visualiser l'importance des variables
+importance(model_rf)
+varImpPlot(model_rf)
+
+summary(model_rf)
+
+# cat(rep("\n", 50))pour ajouter des lignes vides
+
+# #save le data de train et test clean pour les utiliser dans le model
+# write.csv(train_data, "train_data_cleaned.csv", row.names = FALSE)
+# write.csv(test_data, "test_data_cleaned.csv", row.names = FALSE)
+
+# ```
+
+# ```{r}
+# #pour le front avec shiny je vais utiliser le modele de random forest
+# # Charger les données d'entraînement et de test nettoyées
+# train_data <- read.csv("train_data_cleaned.csv")
+# test_data <- read.csv("test_data_cleaned.csv")
+
+# # Entraîner le modèle Random Forest sur l'ensemble de données complet
+# set.seed(42)  # Pour la reproductibilité
+# model_rf <- randomForest(price ~ accommodates + bathrooms + bedrooms + log_price, 
+#                          data = train_data, 
+#                          ntree = 100, 
+#                          importance = TRUE)
+
+# # Prédictions sur l'ensemble de test
+# predictions_rf <- predict(model_rf, newdata = test_data)
+
+# # Calcul du MSE
+# mse_rf <- mean((test_data$price - predictions_rf)^2)
+# print(paste("MSE sur l'ensemble de test pour le modèle Random Forest :", mse_rf))
+
+# # Sauvegarder le modèle pour une utilisation future
+# saveRDS(model_rf, "random_forest_model.rds")
+
+#=================================================================================================
+#=================================================================================================
+#=================================================================================================
+
+# 1. Exclure les colonnes non utiles pour les calculs de corrélation et la normalisation
+numeric_vars <- sapply(data, is.numeric)
+numeric_vars <- numeric_vars & !names(data) %in% c("id") # Exclure `id` de la normalisation
+data[numeric_vars] <- scale(data[numeric_vars])
+
+# 2. Suppression des variables constantes
+constant_vars <- sapply(data, function(x) length(unique(x)) == 1)
+data <- data[, !constant_vars]
+
+# 3. Vérifier et remplir les valeurs `NaN` et `NA` après la normalisation
+data$price[is.na(data$price)] <- median(data$price, na.rm = TRUE)
+
+# 4. Pour la régression, vérifier la multicolinéarité (optionnel)
+library(car)
+vif_model <- lm(price ~ accommodates + bathrooms + bedrooms + log_price, data = train_data)
+vif(vif_model)  # Vérifiez si certaines variables ont un VIF élevé et les supprimer si besoin.
+
+#Vif c'est pour la multicolinéarité en gros si on a des variables qui sont corrélées entre elles on les supprime (corréllées signifie qu'elles donnent la meme information)
+
+# 5. Évaluer la performance des modèles avec R² (optionnel)
+r_squared <- summary(vif_model)$r.squared
+print(paste("R² de la régression linéaire :", r_squared))
+
+# # 6. Sauvegarde du modèle Random Forest après vérifications
+# saveRDS(model_rf, "random_forest_model.rds")
+
+
+#=================================================================================================
+#=================================================================================================
+#=================================================================================================
+
+# Charger le package randomForest
+if (!requireNamespace("randomForest", quietly = TRUE)) {
+    install.packages("randomForest")
+}
+library(randomForest)
+
+# Sélection des variables pertinentes
+selected_vars <- c("price", "accommodates", "bathrooms", "bedrooms", "log_price")
+train_data <- na.omit(train_data[selected_vars])  # Enlever les valeurs manquantes dans l'ensemble d'entraînement
+test_data <- na.omit(test_data[selected_vars])    # Enlever les valeurs manquantes dans l'ensemble de test
+
+# Échantillonner les données si nécessaire pour une meilleure gestion de la mémoire
+set.seed(42)
+train_sample <- train_data[sample(1:nrow(train_data), size = 0.1 * nrow(train_data)), ]
+
+# Entraîner le modèle Random Forest
+set.seed(42)  # Pour assurer la reproductibilité
+model_rf <- randomForest(price ~ accommodates + bathrooms + bedrooms + log_price, 
+                         data = train_sample,
+                         ntree = 100,          # Nombre d'arbres dans la forêt (peut être augmenté pour de meilleures performances)
+                         importance = TRUE)    # Importance des variables pour évaluer leur contribution
+
+# Prédictions sur l'ensemble de test
+predictions_rf <- predict(model_rf, newdata = test_data)
+
+# Calculer le MSE pour évaluer les performances
+mse_rf <- mean((test_data$price - predictions_rf)^2)
+print(paste("MSE sur l'ensemble de test pour le modèle Random Forest :", mse_rf))
+
+# Afficher l'importance des variables
+importance(model_rf)
+varImpPlot(model_rf)
+
+ss_total <- sum((test_data$price - mean(test_data$price))^2)
+ss_residual <- sum((test_data$price - predictions_rf)^2)
+r_squared_rf <- 1 - (ss_residual / ss_total)
+print(paste("R² pour le modèle Random Forest :", r_squared_rf))
+
+# # Optionnel : Sauvegarder le modèle pour une utilisation future
+saveRDS(model_rf, "random_forest_model.rds")
+
+#=================================================================================================
+#=================================================================================================
+library(shiny)
+library(dplyr)
+library(randomForest)
+
+# Chargement des données
+data <- read.csv(choose.files())
+
+# Nettoyage et préparation des données
+data$price <- as.numeric(gsub("[$,]", "", data$price))
+data$price[is.na(data$price)] <- median(data$price, na.rm = TRUE)
+
+# Filtrer les valeurs extrêmes pour le prix et appliquer une transformation logarithmique
+threshold <- quantile(data$price, 0.99, na.rm = TRUE)
+data_filtered <- data %>% filter(price <= threshold)
+data_filtered$log_price <- log1p(data_filtered$price)
+
+# Vérification et traitement des valeurs manquantes pour les colonnes utilisées dans le modèle
+# Remplacer les NA dans 'accommodates', 'bathrooms', et 'bedrooms' par leurs médianes
+data_filtered$accommodates[is.na(data_filtered$accommodates)] <- median(data_filtered$accommodates, na.rm = TRUE)
+data_filtered$bathrooms[is.na(data_filtered$bathrooms)] <- median(data_filtered$bathrooms, na.rm = TRUE)
+data_filtered$bedrooms[is.na(data_filtered$bedrooms)] <- median(data_filtered$bedrooms, na.rm = TRUE)
+
+# Diviser les données en ensemble d'entraînement et de test
+set.seed(42) # Pour la reproductibilité
+train_index <- sample(seq_len(nrow(data_filtered)), size = 0.8 * nrow(data_filtered))
+train_data <- data_filtered[train_index, ]
+test_data <- data_filtered[-train_index, ]
+
+# Entraînement du modèle Random Forest
+model_rf <- randomForest(price ~ accommodates + bathrooms + bedrooms, 
+                         data = train_data, ntree = 100, importance = TRUE)
+
+# Prédictions sur l'ensemble de test
+predictions_rf <- predict(model_rf, newdata = test_data)
+
+# Calcul du MSE pour évaluer les performances
+mse_rf <- mean((test_data$price - predictions_rf)^2)
+print(paste("MSE pour le modèle Random Forest :", mse_rf))
